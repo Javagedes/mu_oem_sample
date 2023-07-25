@@ -7,11 +7,15 @@
 
 #include <Uefi.h>
 #include <UefiSecureBoot.h>
-#include <Guid/ImageAuthentication.h>
-#include <Library/SecureBootVariableLib.h>
 
+#include <Pi/PiFirmwareFile.h>
+
+#include <Guid/ImageAuthentication.h>
+
+#include <Library/SecureBootVariableLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
+#include <Library/DxeServicesLib.h>
 
 #include "MsSecureBootDefaultVars.h"
 
@@ -27,23 +31,23 @@ UINT8                     mSecureBootPayloadCount                            = P
 SECURE_BOOT_PAYLOAD_INFO  mSecureBootPayload[PLATFORM_SECURE_BOOT_KEY_COUNT] = {
   {
     .SecureBootKeyName = L"Microsoft Only",
-    .KekPtr            = mKekDefault,
-    .KekSize           = sizeof (mKekDefault),
-    .DbPtr             = mDbDefault,
-    .DbSize            = sizeof (mDbDefault),
-    .DbxPtr            = mDbxDefault,
-    .DbxSize           = sizeof (mDbxDefault),
+    .KekPtr            = NULL,
+    .KekSize           = 0,
+    .DbPtr             = NULL,
+    .DbSize            = 0,
+    .DbxPtr            = NULL,
+    .DbxSize           = 0,
     .DbtPtr            = NULL,
     .DbtSize           = 0,
   },
   {
     .SecureBootKeyName = L"Microsoft Plus 3rd Party",
-    .KekPtr            = mKekDefault,
-    .KekSize           = sizeof (mKekDefault),
-    .DbPtr             = mDb3PDefault,
-    .DbSize            = sizeof (mDb3PDefault),
-    .DbxPtr            = mDbxDefault,
-    .DbxSize           = sizeof (mDbxDefault),
+    .KekPtr            = NULL,
+    .KekSize           = 0,
+    .DbPtr             = NULL,
+    .DbSize            = 0,
+    .DbxPtr            = NULL,
+    .DbxSize           = 0,
     .DbtPtr            = NULL,
     .DbtSize           = 0,
   }
@@ -94,8 +98,16 @@ SecureBootKeyStoreLibConstructor (
 {
   EFI_STATUS                    Status;
   UINTN                         DataSize;
-  EFI_SIGNATURE_LIST            *SigListBuffer = NULL;
-  SECURE_BOOT_CERTIFICATE_INFO  TempInfo       = {
+  UINT8                         *KekDefault      = NULL;
+  UINTN                         KekDefaultSize   = 0;
+  UINT8                         *DbDefault       = NULL;
+  UINTN                         DbDefaultSize    = 0;
+  UINT8                         *Db3PDefault     = NULL;
+  UINTN                         Db3PDefaultSize  = 0;
+  UINT8                         *DbxDefault      = NULL;
+  UINTN                         DbxDefaultSize   = 0;
+  EFI_SIGNATURE_LIST            *SigListBuffer   = NULL;
+  SECURE_BOOT_CERTIFICATE_INFO  TempInfo         = {
     .Data     = mDevelopmentPlatformKeyCertificate,
     .DataSize = sizeof (mDevelopmentPlatformKeyCertificate)
   };
@@ -110,10 +122,64 @@ SecureBootKeyStoreLibConstructor (
     ASSERT (FALSE);
   }
 
-  mSecureBootPayload[0].PkPtr  = SigListBuffer;
-  mSecureBootPayload[0].PkSize = DataSize;
-  mSecureBootPayload[1].PkPtr  = SigListBuffer;
-  mSecureBootPayload[1].PkSize = DataSize;
+  Status = GetSectionFromAnyFv(
+    PcdGetPtr(PcdSecureBootKekBinaryFile),
+    EFI_SECTION_RAW,
+    0,
+    (VOID **)&KekDefault,
+    &KekDefaultSize
+  );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a - Failed to Locate Kek Binary File in FV!\n", __FUNCTION__));
+    ASSERT (FALSE);
+  }
+
+  Status = GetSectionFromAnyFv(
+    PcdGetPtr(PcdSecureBootDbBinaryFile),
+    EFI_SECTION_RAW,
+    0,
+    (VOID **)&DbDefault,
+    &DbDefaultSize
+  );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a - Failed to Locate Db Binary File in FV!\n", __FUNCTION__));
+    ASSERT (FALSE);
+  }
+
+  Status = GetSectionFromAnyFv(
+    PcdGetPtr(PcdSecureBoot3PDbBinaryFile),
+    EFI_SECTION_RAW,
+    0,
+    (VOID **)&Db3PDefault,
+    &Db3PDefaultSize
+  );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a - Failed to Locate 3P Db Binary File in FV!\n", __FUNCTION__));
+    ASSERT (FALSE);
+  }
+
+  Status = GetSectionFromAnyFv(
+    PcdGetPtr(PcdSecureBotDbxBinaryFile),
+    EFI_SECTION_RAW,
+    0,
+    (VOID **)&DbxDefault,
+    &DbxDefaultSize
+  );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a - Failed to Locate Dbx Binary File in FV!\n", __FUNCTION__));
+    ASSERT (FALSE);
+  }
+
+  mSecureBootPayload[0] = (SECURE_BOOT_PAYLOAD_INFO) {
+    .KekPtr = KekDefault,
+    .KekSize = KekDefaultSize,
+    .DbPtr = Db3PDefault,
+    .DbSize = Db3PDefaultSize,
+    .DbxPtr = DbxDefault,
+    .DbxSize = DbxDefaultSize,
+    .PkPtr = SigListBuffer,
+    .PkSize = DataSize
+  };
 
   gSecureBootPayload      = mSecureBootPayload;
   gSecureBootPayloadCount = mSecureBootPayloadCount;
